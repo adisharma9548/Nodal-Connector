@@ -1,6 +1,7 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 
 import { EndedRoom } from '../models/EndedRoom';
 import { getJwtSecret } from '../middleware/auth';
@@ -64,14 +65,16 @@ export const initSocketIO = (httpServer: HTTPServer) => {
     },
   });
 
-  EndedRoom.find({})
-    .select('roomId')
-    .lean()
-    .then((rooms) => {
-      rooms.forEach((r: any) => endedRoomsSet.add(r.roomId));
-      console.log(`[Socket.IO] Pre-loaded ${endedRoomsSet.size} concluded rooms into termination registry`);
-    })
-    .catch((err) => console.error('[Socket.IO] Failed to pre-load concluded rooms:', err));
+  if (mongoose.connection.readyState === 1) {
+    EndedRoom.find({})
+      .select('roomId')
+      .lean()
+      .then((rooms) => {
+        rooms.forEach((r: any) => endedRoomsSet.add(r.roomId));
+        console.log(`[Socket.IO] Pre-loaded ${endedRoomsSet.size} concluded rooms into termination registry`);
+      })
+      .catch((err) => console.error('[Socket.IO] Failed to pre-load concluded rooms:', err));
+  }
 
   io.use((socket: Socket, next) => {
     const token =

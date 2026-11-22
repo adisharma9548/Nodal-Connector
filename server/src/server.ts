@@ -244,8 +244,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(mongoSanitize);
 
-// 3. Initialize Real-Time WebSockets
-initSocketIO(server);
+// 3. Real-Time WebSockets (Initialized in standalone/container mode)
 
 // 4. Health Check & Root Endpoints (Handles GET & HEAD for Render health checks and uptime probes)
 const handleHealthCheck = (_req: express.Request, res: express.Response) => {
@@ -288,12 +287,30 @@ app.get('/health/email', async (_req: express.Request, res: express.Response) =>
 });
 
 // Ensure MongoDB connection is established for serverless/cold-start environments (e.g. Vercel)
-app.use(async (_req, _res, next) => {
+app.use(async (req, res, next) => {
+  // Allow health checks to respond immediately without DB requirement
+  if (req.path === '/health' || req.path === '/api/health' || req.path === '/') {
+    return next();
+  }
+
   if (mongoose.connection.readyState === 0) {
+    if (!process.env.MONGODB_URI) {
+      return res.status(503).json({
+        error: {
+          code: 'DATABASE_NOT_CONFIGURED',
+          message: 'MONGODB_URI environment variable is missing in server settings. Please configure MONGODB_URI in Vercel project environment variables.',
+        },
+      });
+    }
     try {
-      await connectDB();
+      await connectDB(2, 500);
     } catch (e: any) {
-      console.error('[Serverless] DB connection error:', e.message);
+      return res.status(503).json({
+        error: {
+          code: 'DATABASE_CONNECTION_FAILED',
+          message: `Unable to connect to MongoDB: ${e.message}`,
+        },
+      });
     }
   }
   next();
@@ -352,6 +369,7 @@ const startServer = async () => {
   try {
     await connectDB();
     await initRedis();
+    initSocketIO(server);
 
     const appName = process.env.APP_NAME?.trim() || 'NodalConnector';
     // Use the real public URL in production if available (Railway sets RAILWAY_PUBLIC_DOMAIN, Render sets RENDER_EXTERNAL_URL)
