@@ -349,8 +349,27 @@ Evaluators and project maintainers can track prioritized platform tasks against 
 
 ---
 
+## 📚 Project Documentation & Runbooks
+
+All architecture, deployment, security, and audit documentation is neatly organized in the [`docs/`](docs/) directory:
+
+| Document | Description |
+| :--- | :--- |
+| **[Architecture Guide](docs/ARCHITECTURE.md)** | System topology, 2FA auth flow, BOLA resume retrieval, and assessment engine sequence diagrams. |
+| **[Deployment Runbook](docs/DEPLOYMENT.md)** | Production deployment instructions for Vercel (unified serverless) and custom DNS setup. |
+| **[Threat Model](docs/THREAT_MODEL.md)** | 1-page threat model: system assets, threat actors, top 10 abuse cases, and defense implementations. |
+| **[Incident Response](docs/INCIDENT_RESPONSE.md)** | Emergency runbook for handling leaks, breaches, rollbacks, and statutory DPDP Act reporting. |
+| **[Privacy Disclosures](docs/PRIVACY_NOTES.md)** | Data processing specifications aligned with the India DPDP Act 2023 and GDPR baseline. |
+| **[Security & Limits](docs/SECURITY_HEADERS_AND_LIMITS.md)** | Reference for CSP headers, rate limits, payload sizes, and connection timeouts. |
+| **[Credential Rotation Checklist](docs/ROTATION_CHECKLIST.md)** | Checklist for rotating MongoDB Atlas, JWT, Cloudinary, and Gmail credentials. |
+| **[Manual Setup Guide](docs/MANUAL_ACTIONS.md)** | Click-by-click manual instructions for Vercel, Atlas, and GitHub settings. |
+| **[Audit Reports](docs/audit/)** | Complete pre-launch reports ([Pre-Launch Audit](docs/audit/PRELAUNCH_REPORT.md), [QA Report](docs/audit/QA_REPORT.md), [Security Report](docs/audit/SECURITY_REPORT.md)). |
+| **[Specifications](docs/specifications/)** | [API Specification](docs/specifications/BACKEND_API_SPECIFICATION.md), [Design System](docs/specifications/design.md), and [Walkthrough](docs/specifications/walkthrough.md). |
+
+---
+
 ## 📄 License & Security
 
-- **License**: Released under the permissive [MIT License](LICENSE).
-- **Security Policy**: Read our coordinated vulnerability disclosure policy and SLA commitments in [SECURITY.md](SECURITY.md).
-- **Pre-Launch Audit**: Review full penetration test findings and verification proof in [PRELAUNCH_REPORT.md](PRELAUNCH_REPORT.md).
+- **License**: Released under the permissive MIT License.
+- **Security Policy**: Read our coordinated vulnerability disclosure policy and SLA commitments in [docs/SECURITY.md](docs/SECURITY.md).
+- **Pre-Launch Audit**: Review full penetration test findings and verification proof in [docs/audit/PRELAUNCH_REPORT.md](docs/audit/PRELAUNCH_REPORT.md).
