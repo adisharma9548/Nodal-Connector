@@ -1,7 +1,0 @@
-# Global owners
-* @adisharma9548
-
-# Security critical components
-/server/src/middleware/auth.ts @adisharma9548
-/server/src/middleware/upload.ts @adisharma9548
-/.github/workflows/ @adisharma9548

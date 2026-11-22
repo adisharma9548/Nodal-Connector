@@ -1,32 +1,10 @@
 {
-  "name": "nodalconnector",
+  "name": "nodal-connector",
   "version": "1.0.0",
   "private": true,
-  "description": "NodalConnector Portal - Monorepo for Client & Server",
-  "workspaces": [
-    "client",
-    "server",
-    "presentation"
-  ],
-  "engines": {
-    "node": ">=24.0.0",
-    "npm": ">=10.0.0"
-  },
+  "description": "Talent & Industry Collaboration Platform",
   "scripts": {
-    "postinstall": "npm install --prefix client && npm install --prefix server && npm install --prefix presentation",
-    "install:all": "npm install --prefix client && npm install --prefix server && npm install --prefix presentation",
     "dev:client": "npm run dev --prefix client",
-    "dev:server": "npm run dev --prefix server",
-    "dev:presentation": "npm run dev --prefix presentation",
-    "presentation": "npm run dev --prefix presentation",
-    "dev": "npm run dev --prefix client",
-    "build:client": "npm run build --prefix client",
-    "build:server": "npm run build --prefix server",
-    "build:presentation": "npm run build --prefix presentation",
-    "build": "npm run build:client && npm run build:server && npm run build:presentation",
-    "check:fake-data": "node scripts/check-no-fake-data.js",
-    "clean:fake-data": "node scripts/cleanup-fake-data.js",
-    "start:server": "npm run start --prefix server",
-    "start": "npm run start --prefix server"
+    "dev:server": "npm run dev --prefix server"
   }
 }
