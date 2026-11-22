@@ -24,12 +24,18 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config();
 
 if (!process.env.JWT_SECRET) {
-  console.error('[FATAL CONFIGURATION ERROR] JWT_SECRET environment variable is missing.');
-  process.exit(1);
+  console.warn('[CONFIGURATION NOTICE] JWT_SECRET environment variable is missing.');
+  if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
+    console.error('[FATAL CONFIGURATION ERROR] JWT_SECRET is mandatory in standalone production mode.');
+    process.exit(1);
+  }
 }
 if (!process.env.MONGODB_URI) {
-  console.error('[FATAL CONFIGURATION ERROR] MONGODB_URI environment variable is missing.');
-  process.exit(1);
+  console.warn('[CONFIGURATION NOTICE] MONGODB_URI environment variable is missing.');
+  if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
+    console.error('[FATAL CONFIGURATION ERROR] MONGODB_URI is mandatory in standalone production mode.');
+    process.exit(1);
+  }
 }
 
 import express from 'express';
@@ -120,7 +126,7 @@ export const isOriginAllowed = (origin: string): boolean => {
   const normalizedOrigin = origin.replace(/\/+$/, '');
   const isOfficialVercel =
     normalizedOrigin === 'https://app.nodalconnector.com' ||
-    /^https:\/\/nodal-connector(-[a-zA-Z0-9_-]+)?\.vercel\.app$/.test(normalizedOrigin);
+    /^https:\/\/([a-zA-Z0-9_-]+)\.vercel\.app$/.test(normalizedOrigin);
   const isOfficialRailway =
     normalizedOrigin === 'https://api.nodalconnector.com' ||
     /^https:\/\/nodal-connector(-[a-zA-Z0-9_-]+)?\.up\.railway\.app$/.test(normalizedOrigin);
