@@ -1,0 +1,506 @@
+import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
+import { api } from '../../services/api';
+import {
+  Video,
+  Calendar,
+  Clock,
+  User,
+  Plus,
+  ArrowRight,
+  ExternalLink,
+  ShieldCheck,
+  CheckCircle2,
+  X,
+  Loader2,
+  Users,
+  AlertCircle,
+  Trash2,
+} from 'lucide-react';
+import { Badge } from '../../components/common/Badge';
+import { WebRtcVideoRoom } from '../../components/meeting/WebRtcVideoRoom';
+
+interface MeetingItem {
+  id: string;
+  title: string;
+  type: 'interview' | 'mentorship' | 'collaboration' | 'fdp';
+  organizerName: string;
+  organizerRole: string;
+  participantName: string;
+  participantEmail: string;
+  scheduledAt: string;
+  durationMinutes: number;
+  roomId: string;
+  meetingUrl: string;
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+  notes?: string;
+}
+
+export const LiveMeetingPage: React.FC = () => {
+  const { user, role } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const [meetings, setMeetings] = useState<MeetingItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [activeCallRoom, setActiveCallRoom] = useState<MeetingItem | null>(null);
+  const [roomCodeInput, setRoomCodeInput] = useState('');
+  const [checkingRoom, setCheckingRoom] = useState(false);
+  const [roomError, setRoomError] = useState<string | null>(null);
+
+  // Auto-launch room if ?room= parameter is provided in the URL, after verifying room is active
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const roomParam = params.get('room');
+    const titleParam = params.get('title');
+
+    if (roomParam) {
+      setCheckingRoom(true);
+      setRoomError(null);
+
+      api.meetings.getById(roomParam)
+        .then((res) => {
+          const meetingData = res.data;
+          setActiveCallRoom({
+            id: roomParam,
+            roomId: roomParam,
+            title: meetingData?.title || titleParam || 'Technical Interview Session',
+            type: meetingData?.type || 'interview',
+            organizerName: meetingData?.organizerName || 'Interview Board',
+            organizerRole: meetingData?.organizerRole || 'industry',
+            participantName: meetingData?.participantName || user?.name || 'Participant',
+            participantEmail: meetingData?.participantEmail || user?.email || '',
+            scheduledAt: meetingData?.scheduledAt || new Date().toISOString(),
+            durationMinutes: meetingData?.durationMinutes || 45,
+            meetingUrl: `/meetings?room=${roomParam}`,
+            status: 'in_progress',
+          });
+        })
+        .catch((err: any) => {
+          console.warn('[LiveMeetingPage] Pre-join room verification failed:', err);
+          const message =
+            err.message ||
+            'This meeting session has ended and is no longer accessible. New participants cannot join.';
+          setRoomError(message);
+          setActiveCallRoom(null);
+          // Remove ?room= parameter from URL to prevent invalid join attempts
+          navigate('/meetings', { replace: true });
+        })
+        .finally(() => {
+          setCheckingRoom(false);
+        });
+    }
+  }, [location.search, user]);
+
+  const handleCloseRoom = () => {
+    setActiveCallRoom(null);
+    fetchMeetings();
+    if (role === 'industry' || user?.role === 'industry' || role === 'admin') {
+      navigate('/industry/applicants', { replace: true });
+    } else if (role === 'student' || user?.role === 'student') {
+      navigate('/student/applications', { replace: true });
+    } else if (role === 'academician' || user?.role === 'academician') {
+      navigate('/academician/opportunities', { replace: true });
+    } else {
+      navigate('/meetings', { replace: true });
+    }
+  };
+
+  const handleDirectJoin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!roomCodeInput.trim()) return;
+
+    let targetRoom = roomCodeInput.trim();
+    // Support pasting full URL like http://localhost:5173/meetings?room=xyz or just xyz
+    if (targetRoom.includes('room=')) {
+      const match = targetRoom.match(/[?&]room=([^&]+)/);
+      if (match) targetRoom = decodeURIComponent(match[1]);
+    }
+
+    setRoomCodeInput('');
+    setRoomError(null);
+    setCheckingRoom(true);
+
+    try {
+      const res = await api.meetings.getById(targetRoom);
+      const meetingData = res.data;
+      navigate(
+        `/meetings?room=${encodeURIComponent(targetRoom)}&title=${encodeURIComponent(meetingData?.title || 'Direct Video Session')}`,
+        { replace: true }
+      );
+    } catch (err: any) {
+      setRoomError(
+        err.message || 'This meeting session has ended or is no longer accessible. New participants cannot join.'
+      );
+    } finally {
+      setCheckingRoom(false);
+    }
+  };
+
+  // Scheduling form state
+  const [formData, setFormData] = useState({
+    title: '',
+    type: 'interview' as const,
+    participantEmail: '',
+    participantName: '',
+    scheduledAt: '',
+    durationMinutes: 45,
+    notes: '',
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    fetchMeetings();
+  }, []);
+
+  const fetchMeetings = async () => {
+    setLoading(true);
+    try {
+      const res = await api.meetings.getMyMeetings();
+      // Ensure only active scheduled/in-progress meetings are displayed
+      const activeList = (res.data || []).filter(
+        (m: MeetingItem) => m.status !== 'completed' && m.status !== 'cancelled'
+      );
+      setMeetings(activeList);
+    } catch {
+      setMeetings([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteMeeting = async (meetingId: string) => {
+    if (!window.confirm('Are you sure you want to cancel and delete this meeting session? It will be removed from all participants.')) {
+      return;
+    }
+    try {
+      await api.meetings.deleteMeeting(meetingId);
+      fetchMeetings();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete meeting');
+    }
+  };
+
+  const handleScheduleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setErrorMsg('');
+    try {
+      await api.meetings.schedule({
+        title: formData.title,
+        type: formData.type,
+        participantEmail: formData.participantEmail,
+        participantName: formData.participantName,
+        scheduledAt: formData.scheduledAt,
+        durationMinutes: Number(formData.durationMinutes),
+        notes: formData.notes,
+      });
+      setShowScheduleModal(false);
+      setFormData({
+        title: '',
+        type: 'interview',
+        participantEmail: '',
+        participantName: '',
+        scheduledAt: '',
+        durationMinutes: 45,
+        notes: '',
+      });
+      fetchMeetings();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to schedule meeting');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+              Live Hiring & Mentorship
+            </span>
+            <span className="text-xs text-slate-400">Native WebRTC HD Secured (Unlimited)</span>
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight mt-1">Live Video Meetings & Interviews</h1>
+          <p className="text-xs text-slate-500 mt-1">
+            Conduct secure one-on-one technical interviews, academic mentorships, and corporate hiring rounds.
+          </p>
+        </div>
+
+        {(role === 'industry' || role === 'academician' || role === 'admin') && (
+          <button
+            onClick={() => setShowScheduleModal(true)}
+            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md flex items-center gap-2 self-start sm:self-auto transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Schedule New Interview</span>
+          </button>
+        )}
+      </div>
+
+      {/* Built-in Native WebRTC Video Call Room (Zero Jitsi, Unlimited Duration) */}
+      {activeCallRoom && user && (
+        <WebRtcVideoRoom
+          roomId={activeCallRoom.roomId || activeCallRoom.id}
+          roomTitle={activeCallRoom.title}
+          currentUser={{
+            id: user.id,
+            name: user.name,
+            role: user.role,
+          }}
+          onClose={handleCloseRoom}
+        />
+      )}
+
+      {/* Room Inaccessible / Concluded Alert Banner */}
+      {roomError && (
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-3 shadow-xs animate-in fade-in duration-150">
+          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-bold text-sm text-rose-900">Meeting Session Inaccessible</p>
+            <p className="mt-0.5 text-rose-700 leading-relaxed">{roomError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRoomError(null)}
+            className="text-rose-400 hover:text-rose-600 cursor-pointer p-1"
+            title="Dismiss"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Direct Room Code / Link Entry Bar */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-xs">
+        <form onSubmit={handleDirectJoin} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold text-xs shrink-0">
+            <Video className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Join Room by Code:</span>
+          </div>
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={roomCodeInput}
+              onChange={(e) => setRoomCodeInput(e.target.value)}
+              placeholder="Enter Room Code (e.g. interview-65f... or paste room link)"
+              className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 dark:text-white"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={!roomCodeInput.trim()}
+            className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs transition-colors cursor-pointer shrink-0"
+          >
+            Enter Call
+          </button>
+        </form>
+      </div>
+
+      {/* Meetings List Card */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-6 shadow-xs space-y-4">
+        <h3 className="font-bold text-sm text-slate-900 dark:text-white">Your Scheduled Sessions</h3>
+
+        {loading ? (
+          <div className="py-12 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+            <span>Loading scheduled conferences...</span>
+          </div>
+        ) : meetings.length === 0 ? (
+          <div className="py-12 text-center space-y-2">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 mx-auto flex items-center justify-center">
+              <Video className="w-6 h-6" />
+            </div>
+            <p className="text-sm font-bold text-slate-700 dark:text-slate-300">No Meetings Scheduled Yet</p>
+            <p className="text-xs text-slate-400 max-w-sm mx-auto">
+              {role === 'student'
+                ? 'When an industry recruiter or faculty mentor schedules an interview with you, it will appear here with an instant 1-click join room link.'
+                : 'Click "Schedule New Interview" to arrange a live video meeting with a candidate or scholar.'}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {meetings.map((m) => (
+              <div
+                key={m.id}
+                className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700 transition-all bg-slate-50/50 dark:bg-slate-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+              >
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-xs text-slate-900">{m.title}</span>
+                    <Badge variant={m.type === 'interview' ? 'emerald' : 'blue'} size="sm">
+                      {m.type.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5" />
+                      {new Date(m.scheduledAt).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      {new Date(m.scheduledAt).toLocaleTimeString(undefined, {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}{' '}
+                      ({m.durationMinutes} mins)
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Users className="w-3.5 h-3.5" />
+                      {role === 'student' ? `Host: ${m.organizerName}` : `Candidate: ${m.participantName}`}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => navigate(`/meetings?room=${encodeURIComponent(m.roomId || m.id)}&title=${encodeURIComponent(m.title)}`, { replace: true })}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Video className="w-3.5 h-3.5" />
+                    <span>Join Room</span>
+                  </button>
+
+                  {(role === 'industry' || role === 'admin' || role === m.organizerRole) && (
+                    <button
+                      onClick={() => handleDeleteMeeting(m.id)}
+                      className="p-2 rounded-xl border border-rose-200 text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors cursor-pointer"
+                      title="Cancel and remove meeting"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Scheduling Modal */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-slate-900">Schedule Live Meeting</h3>
+              <button
+                onClick={() => setShowScheduleModal(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold text-lg"
+              >
+                &times;
+              </button>
+            </div>
+
+            {errorMsg && (
+              <div className="p-3 my-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+                {errorMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleScheduleSubmit} className="space-y-4 mt-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Session Title</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Technical Interview Round 1 (Full-Stack & Algorithms)"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Participant Email</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="student@dtu.edu.in"
+                    value={formData.participantEmail}
+                    onChange={(e) => setFormData({ ...formData, participantEmail: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Participant Name</label>
+                  <input
+                    type="text"
+                    placeholder="Candidate Name"
+                    value={formData.participantName}
+                    onChange={(e) => setFormData({ ...formData, participantName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Date & Time</label>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={formData.scheduledAt}
+                    onChange={(e) => setFormData({ ...formData, scheduledAt: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Duration (Minutes)</label>
+                  <select
+                    value={formData.durationMinutes}
+                    onChange={(e) => setFormData({ ...formData, durationMinutes: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  >
+                    <option value={30}>30 Minutes</option>
+                    <option value={45}>45 Minutes</option>
+                    <option value={60}>60 Minutes</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Meeting Notes / Agenda</label>
+                <textarea
+                  rows={2}
+                  placeholder="Topics to discuss, project review, or coding problems..."
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowScheduleModal(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                  <span>Confirm Schedule</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /student/
+Disallow: /industry/
+Disallow: /academician/
+Disallow: /institution/
+Sitemap: https://nodalconnector.in/sitemap.xml

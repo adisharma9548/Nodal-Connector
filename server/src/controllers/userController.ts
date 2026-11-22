@@ -1,0 +1,235 @@
+import { Response } from 'express';
+import mongoose from 'mongoose';
+import { AuthRequest } from '../middleware/auth';
+import { User } from '../models/User';
+import { uploadToCloudinary } from '../config/cloudinary';
+import { handleAcademicProfileUpdate } from '../services/academicContextService';
+import { OtpVerification } from '../models/OtpVerification';
+import { validatePasswordPolicy } from './authController';
+
+export const updateProfile = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+
+    const { userId } = req.params;
+    const updates = req.body;
+
+    // OWASP A01: Broken Object Level Authorization (IDOR) check
+    const isOwner = !userId || userId === req.user._id.toString();
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You are not authorized to modify another user\'s profile' } });
+    }
+
+    // OWASP API3:2023 - Strict Whitelist for Profile Updates (Prevent Mass Assignment / BOPLA)
+    const allowedFields = [
+      'name',
+      'phone',
+      'bio',
+      'location',
+      'profilePicture',
+      'department',
+      'designation',
+      'skills',
+      'ayushDomain',
+      'institution',
+      'industry',
+      'degree',
+      'academicField',
+      'specialization',
+      'graduationYear',
+      'facultyId',
+      'currentDomain',
+      'targetDomain',
+    ];
+
+    if (isAdmin) {
+      allowedFields.push('verified');
+    }
+
+    const sanitizedUpdates: Record<string, any> = {};
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        sanitizedUpdates[field] = updates[field];
+      }
+    }
+
+    let user = req.user;
+    if (isAdmin && userId && mongoose.isValidObjectId(userId)) {
+      const found = await User.findById(userId);
+      if (!found) {
+        return res.status(404).json({ error: { code: 'USER_NOT_FOUND', message: 'User not found' } });
+      }
+      user = found;
+    }
+
+    // Authoritative Academic Invalidation: If degree, department, institution, or specialization changed,
+    // atomically archive existing competencies, mark assessment attempts as non-current,
+    // clear stale study roadmaps, and set current radar to 'not_assessed'.
+    const academicResult = await handleAcademicProfileUpdate(user, sanitizedUpdates);
+
+    Object.assign(user, sanitizedUpdates);
+    await user.save();
+
+    res.json({
+      data: {
+        ...user.toSafeObject(),
+        academicContextChanged: academicResult.changed,
+        academicContextVersion: user.academicContextVersion,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to update profile' } });
+  }
+};
+
+export const uploadDocument = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: { code: 'NO_FILE', message: 'No file uploaded' } });
+    }
+
+    const folder = req.body.folder || 'documents';
+    const filename = req.body.filename || req.user?.name?.replace(/\s+/g, '_') || 'doc';
+
+    const uploadResult = await uploadToCloudinary(req.file.buffer, folder, filename);
+
+    res.json({
+      data: {
+        url: uploadResult.url,
+        publicId: uploadResult.publicId,
+        filename: req.file.originalname,
+        size: req.file.size,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: { code: 'UPLOAD_FAILED', message: err.message } });
+  }
+};
+
+export const uploadAvatar = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: { code: 'NO_FILE', message: 'Please select an image file to upload' } });
+    }
+
+    let avatarUrl = '';
+
+    try {
+      const filename = `avatar_${req.user._id}_${Date.now()}`;
+      const uploadResult = await uploadToCloudinary(req.file.buffer, 'ayush_avatars', filename);
+      avatarUrl = uploadResult.url;
+    } catch (cloudinaryErr: any) {
+      console.warn('[Cloudinary Notice] Cloudinary upload fallback to base64 data URI:', cloudinaryErr.message);
+      const mime = req.file.mimetype || 'image/jpeg';
+      avatarUrl = `data:${mime};base64,${req.file.buffer.toString('base64')}`;
+    }
+
+    req.user.profilePicture = avatarUrl;
+    await req.user.save();
+
+    res.json({
+      data: {
+        profilePicture: avatarUrl,
+        user: req.user.toSafeObject(),
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: { code: 'AVATAR_UPLOAD_FAILED', message: err.message } });
+  }
+};
+
+export const removeAvatar = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+
+    req.user.profilePicture = '';
+    await req.user.save();
+
+    res.json({
+      data: {
+        profilePicture: '',
+        user: req.user.toSafeObject(),
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
+export const getCandidates = async (_req: AuthRequest, res: Response) => {
+  try {
+    const candidates = await User.find({ role: { $in: ['student', 'jobseeker'] }, verified: true })
+      .select('name email institution department degree location skills verified profilePicture createdAt')
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ data: candidates });
+  } catch (err: any) {
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
+export const changePassword = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    const rawParamId = req.params.userId;
+    // Normalize: if the route matched /users/password, rawParamId is 'password' or undefined
+    const requestedUserId = rawParamId && rawParamId !== 'password' ? rawParamId : undefined;
+
+    // OWASP A01: IDOR check - users can only change their own password unless admin
+    if (requestedUserId && requestedUserId !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You can only change your own password' } });
+    }
+
+    const targetUserId = (req.user.role === 'admin' && requestedUserId) ? requestedUserId : req.user._id;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Current password and new password are required' } });
+    }
+
+    const policyCheck = validatePasswordPolicy(newPassword);
+    if (!policyCheck.valid) {
+      return res.status(400).json({ error: { code: 'WEAK_PASSWORD', message: policyCheck.message } });
+    }
+
+    const user = await User.findById(targetUserId).select('+password');
+    if (!user) {
+      return res.status(404).json({ error: { code: 'USER_NOT_FOUND', message: 'User not found' } });
+    }
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Current password is incorrect' } });
+    }
+
+    user.password = newPassword;
+    user.passwordChangedAt = new Date();
+    user.requiresPasswordReset = false;
+    await user.save();
+
+    // Invalidate any active reset OTP records
+    await OtpVerification.deleteMany({ email: user.email.toLowerCase() }).catch(() => {});
+
+    res.json({
+      data: {
+        success: true,
+        message: 'Password updated successfully in database',
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to update password' } });
+  }
+};

@@ -1,0 +1,37 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main, prelaunch-cleanup ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build client and server bundles
+        run: npm run build
+
+      - name: Run automated verification tests
+        run: |
+          cd server
+          npm run test:verify
+        env:
+          NODE_ENV: test
+          MONGODB_URI: mongodb://localhost:27017/nodalconnector_ci
